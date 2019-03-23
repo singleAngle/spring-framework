@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -17,6 +17,7 @@
 package org.springframework.web.reactive.result;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -47,7 +48,8 @@ import org.springframework.web.server.ServerWebExchange;
  */
 public abstract class HandlerResultHandlerSupport implements Ordered {
 
-	private static final MediaType MEDIA_TYPE_APPLICATION_ALL = new MediaType("application");
+	private static final List<MediaType> ALL_APPLICATION_MEDIA_TYPES =
+			Arrays.asList(MediaType.ALL, new MediaType("application"));
 
 
 	protected final Log logger = LogFactory.getLog(getClass());
@@ -101,20 +103,18 @@ public abstract class HandlerResultHandlerSupport implements Ordered {
 
 	/**
 	 * Get a {@code ReactiveAdapter} for the top-level return value type.
-	 * @return the matching adapter or {@code null}
+	 * @return the matching adapter, or {@code null} if none
 	 */
 	@Nullable
 	protected ReactiveAdapter getAdapter(HandlerResult result) {
-		Class<?> returnType = result.getReturnType().getRawClass();
-		return getAdapterRegistry().getAdapter(returnType, result.getReturnValue());
+		return getAdapterRegistry().getAdapter(result.getReturnType().resolve(), result.getReturnValue());
 	}
 
 	/**
-	 * Select the best media type for the current request through a content
-	 * negotiation algorithm.
+	 * Select the best media type for the current request through a content negotiation algorithm.
 	 * @param exchange the current request
 	 * @param producibleTypesSupplier the media types that can be produced for the current request
-	 * @return the selected media type or {@code null}
+	 * @return the selected media type, or {@code null} if none
 	 */
 	@Nullable
 	protected MediaType selectMediaType(ServerWebExchange exchange,
@@ -149,7 +149,7 @@ public abstract class HandlerResultHandlerSupport implements Ordered {
 				selected = mediaType;
 				break;
 			}
-			else if (mediaType.equals(MediaType.ALL) || mediaType.equals(MEDIA_TYPE_APPLICATION_ALL)) {
+			else if (mediaType.isPresentIn(ALL_APPLICATION_MEDIA_TYPES)) {
 				selected = MediaType.APPLICATION_OCTET_STREAM;
 				break;
 			}

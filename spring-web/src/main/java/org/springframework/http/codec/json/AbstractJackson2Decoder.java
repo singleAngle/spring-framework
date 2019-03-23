@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -86,7 +86,8 @@ public abstract class AbstractJackson2Decoder extends Jackson2CodecSupport imple
 	public Flux<Object> decode(Publisher<DataBuffer> input, ResolvableType elementType,
 			@Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
 
-		Flux<TokenBuffer> tokens = Jackson2Tokenizer.tokenize(Flux.from(input), this.jsonFactory, true);
+		Flux<TokenBuffer> tokens = Jackson2Tokenizer.tokenize(
+				Flux.from(input), this.jsonFactory, getObjectMapper().getDeserializationContext(), true);
 		return decodeInternal(tokens, elementType, mimeType, hints);
 	}
 
@@ -94,7 +95,8 @@ public abstract class AbstractJackson2Decoder extends Jackson2CodecSupport imple
 	public Mono<Object> decodeToMono(Publisher<DataBuffer> input, ResolvableType elementType,
 			@Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
 
-		Flux<TokenBuffer> tokens = Jackson2Tokenizer.tokenize(Flux.from(input), this.jsonFactory, false);
+		Flux<TokenBuffer> tokens = Jackson2Tokenizer.tokenize(
+				Flux.from(input), this.jsonFactory, getObjectMapper().getDeserializationContext(), false);
 		return decodeInternal(tokens, elementType, mimeType, hints).singleOrEmpty();
 	}
 
@@ -113,7 +115,7 @@ public abstract class AbstractJackson2Decoder extends Jackson2CodecSupport imple
 				getObjectMapper().readerWithView(jsonView).forType(javaType) :
 				getObjectMapper().readerFor(javaType));
 
-		return tokens.map(tokenBuffer -> {
+		return tokens.flatMap(tokenBuffer -> {
 			try {
 				Object value = reader.readValue(tokenBuffer.asParser(getObjectMapper()));
 				if (!Hints.isLoggingSuppressed(hints)) {
@@ -122,16 +124,16 @@ public abstract class AbstractJackson2Decoder extends Jackson2CodecSupport imple
 						return Hints.getLogPrefix(hints) + "Decoded [" + formatted + "]";
 					});
 				}
-				return value;
+				return Mono.justOrEmpty(value);
 			}
 			catch (InvalidDefinitionException ex) {
-				throw new CodecException("Type definition error: " + ex.getType(), ex);
+				return Mono.error(new CodecException("Type definition error: " + ex.getType(), ex));
 			}
 			catch (JsonProcessingException ex) {
-				throw new DecodingException("JSON decoding error: " + ex.getOriginalMessage(), ex);
+				return Mono.error(new DecodingException("JSON decoding error: " + ex.getOriginalMessage(), ex));
 			}
 			catch (IOException ex) {
-				throw new DecodingException("I/O error while parsing input stream", ex);
+				return Mono.error(new DecodingException("I/O error while parsing input stream", ex));
 			}
 		});
 	}

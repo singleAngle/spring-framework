@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -420,13 +420,15 @@ final class HierarchicalUriComponents extends UriComponents {
 		Assert.state(!this.encodeState.equals(EncodeState.FULLY_ENCODED),
 				"URI components already encoded, and could not possibly contain '{' or '}'.");
 
+		// Array-based vars rely on the below order..
+
 		String schemeTo = expandUriComponent(getScheme(), uriVariables, this.variableEncoder);
-		String fragmentTo = expandUriComponent(getFragment(), uriVariables, this.variableEncoder);
 		String userInfoTo = expandUriComponent(this.userInfo, uriVariables, this.variableEncoder);
 		String hostTo = expandUriComponent(this.host, uriVariables, this.variableEncoder);
 		String portTo = expandUriComponent(this.port, uriVariables, this.variableEncoder);
 		PathComponent pathTo = this.path.expand(uriVariables, this.variableEncoder);
 		MultiValueMap<String, String> queryParamsTo = expandQueryParams(uriVariables);
+		String fragmentTo = expandUriComponent(getFragment(), uriVariables, this.variableEncoder);
 
 		return new HierarchicalUriComponents(schemeTo, fragmentTo, userInfoTo,
 				hostTo, portTo, pathTo, queryParamsTo, this.encodeState, this.variableEncoder);
@@ -756,6 +758,8 @@ final class HierarchicalUriComponents extends UriComponents {
 
 		private final StringBuilder currentLiteral = new StringBuilder();
 
+		private final StringBuilder currentVariable = new StringBuilder();
+
 		private final StringBuilder output = new StringBuilder();
 
 
@@ -767,22 +771,21 @@ final class HierarchicalUriComponents extends UriComponents {
 		@Override
 		public String apply(String source, Type type) {
 
-			// Only URI variable, nothing to encode..
+			// Only URI variable (nothing to encode)..
 			if (source.length() > 1 && source.charAt(0) == '{' && source.charAt(source.length() -1) == '}') {
 				return source;
 			}
 
-			// Only literal, encode all..
+			// Only literal (encode full source)..
 			if (source.indexOf('{') == -1) {
 				return encodeUriComponent(source, this.charset, type);
 			}
 
-			// Mixed, encode all except for URI variables..
-
+			// Mixed literal parts and URI variables, maybe (encode literal parts only)..
 			int level = 0;
 			clear(this.currentLiteral);
+			clear(this.currentVariable);
 			clear(this.output);
-
 			for (char c : source.toCharArray()) {
 				if (c == '{') {
 					level++;
@@ -790,21 +793,25 @@ final class HierarchicalUriComponents extends UriComponents {
 						encodeAndAppendCurrentLiteral(type);
 					}
 				}
-				if (c == '}') {
+				if (c == '}' && level > 0) {
 					level--;
-					Assert.isTrue(level >=0, "Mismatched open and close braces");
+					this.currentVariable.append('}');
+					if (level == 0) {
+						this.output.append(this.currentVariable);
+						clear(this.currentVariable);
+					}
 				}
-				if (level > 0 || (level == 0 && c == '}')) {
-					this.output.append(c);
+				else if (level > 0) {
+					this.currentVariable.append(c);
 				}
 				else {
 					this.currentLiteral.append(c);
 				}
 			}
-
-			Assert.isTrue(level == 0, "Mismatched open and close braces");
+			if (level > 0) {
+				this.currentLiteral.append(this.currentVariable);
+			}
 			encodeAndAppendCurrentLiteral(type);
-
 			return this.output.toString();
 		}
 

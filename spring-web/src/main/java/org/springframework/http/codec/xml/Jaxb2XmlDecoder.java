@@ -75,34 +75,47 @@ public class Jaxb2XmlDecoder extends AbstractDecoder<Object> {
 
 	private final JaxbContextContainer jaxbContexts = new JaxbContextContainer();
 
+	private Function<Unmarshaller, Unmarshaller> unmarshallerProcessor = Function.identity();
+
 
 	public Jaxb2XmlDecoder() {
 		super(MimeTypeUtils.APPLICATION_XML, MimeTypeUtils.TEXT_XML);
 	}
 
 
+	/**
+	 * Configure a processor function to customize Unmarshaller instances.
+	 * @param processor the function to use
+	 * @since 5.1.3
+	 */
+	public void setUnmarshallerProcessor(Function<Unmarshaller, Unmarshaller> processor) {
+		this.unmarshallerProcessor = this.unmarshallerProcessor.andThen(processor);
+	}
+
+	/**
+	 * Return the configured processor for customizing Unmarshaller instances.
+	 * @since 5.1.3
+	 */
+	public Function<Unmarshaller, Unmarshaller> getUnmarshallerProcessor() {
+		return this.unmarshallerProcessor;
+	}
+
+
 	@Override
 	public boolean canDecode(ResolvableType elementType, @Nullable MimeType mimeType) {
-		if (super.canDecode(elementType, mimeType)) {
-			Class<?> outputClass = elementType.getRawClass();
-			return (outputClass != null && (outputClass.isAnnotationPresent(XmlRootElement.class) ||
-					outputClass.isAnnotationPresent(XmlType.class)));
-		}
-		else {
-			return false;
-		}
+		Class<?> outputClass = elementType.toClass();
+		return (outputClass.isAnnotationPresent(XmlRootElement.class) ||
+				outputClass.isAnnotationPresent(XmlType.class)) && super.canDecode(elementType, mimeType);
 	}
 
 	@Override
 	public Flux<Object> decode(Publisher<DataBuffer> inputStream, ResolvableType elementType,
 			@Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
 
-		Class<?> outputClass = elementType.getRawClass();
-		Assert.state(outputClass != null, "Unresolvable output class");
-
 		Flux<XMLEvent> xmlEventFlux = this.xmlEventDecoder.decode(
 				inputStream, ResolvableType.forClass(XMLEvent.class), mimeType, hints);
 
+		Class<?> outputClass = elementType.toClass();
 		QName typeName = toQName(outputClass);
 		Flux<List<XMLEvent>> splitEvents = split(xmlEventFlux, typeName);
 
@@ -119,12 +132,13 @@ public class Jaxb2XmlDecoder extends AbstractDecoder<Object> {
 	@Override
 	public Mono<Object> decodeToMono(Publisher<DataBuffer> inputStream, ResolvableType elementType,
 			@Nullable MimeType mimeType, @Nullable Map<String, Object> hints) {
+
 		return decode(inputStream, elementType, mimeType, hints).singleOrEmpty();
 	}
 
 	private Object unmarshal(List<XMLEvent> events, Class<?> outputClass) {
 		try {
-			Unmarshaller unmarshaller = this.jaxbContexts.createUnmarshaller(outputClass);
+			Unmarshaller unmarshaller = initUnmarshaller(outputClass);
 			XMLEventReader eventReader = StaxUtils.createXMLEventReader(events);
 			if (outputClass.isAnnotationPresent(XmlRootElement.class)) {
 				return unmarshaller.unmarshal(eventReader);
@@ -140,6 +154,11 @@ public class Jaxb2XmlDecoder extends AbstractDecoder<Object> {
 		catch (JAXBException ex) {
 			throw new CodecException("Invalid JAXB configuration", ex);
 		}
+	}
+
+	private Unmarshaller initUnmarshaller(Class<?> outputClass) throws JAXBException {
+		Unmarshaller unmarshaller = this.jaxbContexts.createUnmarshaller(outputClass);
+		return this.unmarshallerProcessor.apply(unmarshaller);
 	}
 
 	/**

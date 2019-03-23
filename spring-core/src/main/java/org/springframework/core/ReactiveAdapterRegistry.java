@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -40,8 +40,8 @@ import org.springframework.util.ReflectionUtils;
  * {@code Observable}, and others.
  *
  * <p>By default, depending on classpath availability, adapters are registered
- * for Reactor, RxJava 1, RxJava 2 types, {@link CompletableFuture}, and Java 9+
- * Flow.Publisher.
+ * for Reactor, RxJava 1, RxJava 2 types, {@link CompletableFuture}, Java 9+
+ * {@code Flow.Publisher} and Kotlin Coroutines {@code Deferred}.
  *
  * @author Rossen Stoyanchev
  * @author Sebastien Deleuze
@@ -90,6 +90,11 @@ public class ReactiveAdapterRegistry {
 		}
 		// If not present, do nothing for the time being...
 		// We can fall back on "reactive-streams-flow-bridge" (once released)
+
+		// Coroutines
+		if (ClassUtils.isPresent("kotlinx.coroutines.Deferred", classLoader)) {
+			CoroutinesRegistrarKt.registerAdapter(this);
+		}
 	}
 
 
@@ -141,15 +146,17 @@ public class ReactiveAdapterRegistry {
 		if (clazz == null) {
 			return null;
 		}
-
-		return this.adapters.stream()
-				.filter(adapter -> adapter.getReactiveType() == clazz)
-				.findFirst()
-				.orElseGet(() ->
-						this.adapters.stream()
-								.filter(adapter -> adapter.getReactiveType().isAssignableFrom(clazz))
-								.findFirst()
-								.orElse(null));
+		for(ReactiveAdapter adapter : this.adapters) {
+			if (adapter.getReactiveType() == clazz) {
+				return adapter;
+			}
+		}
+		for(ReactiveAdapter adapter : this.adapters) {
+			if (adapter.getReactiveType().isAssignableFrom(clazz)) {
+				return adapter;
+			}
+		}
+		return null;
 	}
 
 

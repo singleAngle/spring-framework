@@ -17,6 +17,7 @@
 package org.springframework.http.client.reactive;
 
 import java.util.Collection;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.netty.buffer.ByteBufAllocator;
 import reactor.core.publisher.Flux;
@@ -47,6 +48,8 @@ class ReactorClientHttpResponse implements ClientHttpResponse {
 
 	private final NettyInbound inbound;
 
+	private final AtomicBoolean rejectSubscribers = new AtomicBoolean();
+
 
 	public ReactorClientHttpResponse(HttpClientResponse response, NettyInbound inbound, ByteBufAllocator alloc) {
 		this.response = response;
@@ -58,6 +61,18 @@ class ReactorClientHttpResponse implements ClientHttpResponse {
 	@Override
 	public Flux<DataBuffer> getBody() {
 		return this.inbound.receive()
+				.doOnSubscribe(s -> {
+					if (this.rejectSubscribers.get()) {
+						throw new IllegalStateException("The client response body can only be consumed once.");
+					}
+				})
+				.doOnCancel(() -> {
+					// https://github.com/reactor/reactor-netty/issues/503
+					// FluxReceive rejects multiple subscribers, but not after a cancel().
+					// Subsequent subscribers after cancel() will not be rejected, but will hang instead.
+					// So we need to intercept and reject them in that case.
+					this.rejectSubscribers.set(true);
+				})
 				.map(byteBuf -> {
 					byteBuf.retain();
 					return this.bufferFactory.wrap(byteBuf);

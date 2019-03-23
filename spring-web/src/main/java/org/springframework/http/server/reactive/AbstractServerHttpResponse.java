@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -20,7 +20,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
-import java.util.stream.Collectors;
 
 import org.apache.commons.logging.Log;
 import org.reactivestreams.Publisher;
@@ -45,6 +44,7 @@ import org.springframework.util.MultiValueMap;
  * @author Rossen Stoyanchev
  * @author Juergen Hoeller
  * @author Sebastien Deleuze
+ * @author Brian Clozel
  * @since 5.0
  */
 public abstract class AbstractServerHttpResponse implements ServerHttpResponse {
@@ -106,7 +106,7 @@ public abstract class AbstractServerHttpResponse implements ServerHttpResponse {
 	@Override
 	@Nullable
 	public HttpStatus getStatusCode() {
-		return (this.statusCode != null ? HttpStatus.resolve(this.statusCode) : null);
+		return this.statusCode != null ? HttpStatus.resolve(this.statusCode) : null;
 	}
 
 	/**
@@ -174,13 +174,21 @@ public abstract class AbstractServerHttpResponse implements ServerHttpResponse {
 	@Override
 	public final Mono<Void> writeWith(Publisher<? extends DataBuffer> body) {
 		return new ChannelSendOperator<>(body,
-				writePublisher -> doCommit(() -> writeWithInternal(writePublisher)));
+				writePublisher -> doCommit(() -> writeWithInternal(writePublisher)))
+				.doOnError(t -> removeContentLength());
 	}
 
 	@Override
 	public final Mono<Void> writeAndFlushWith(Publisher<? extends Publisher<? extends DataBuffer>> body) {
 		return new ChannelSendOperator<>(body,
-				writePublisher -> doCommit(() -> writeAndFlushWithInternal(writePublisher)));
+				writePublisher -> doCommit(() -> writeAndFlushWithInternal(writePublisher)))
+				.doOnError(t -> removeContentLength());
+	}
+
+	private void removeContentLength() {
+		if (!this.isCommitted()) {
+			this.getHeaders().remove(HttpHeaders.CONTENT_LENGTH);
+		}
 	}
 
 	@Override
@@ -206,7 +214,6 @@ public abstract class AbstractServerHttpResponse implements ServerHttpResponse {
 		if (!this.state.compareAndSet(State.NEW, State.COMMITTING)) {
 			return Mono.empty();
 		}
-
 		this.commitActions.add(() ->
 				Mono.fromRunnable(() -> {
 					applyStatusCode();
@@ -214,15 +221,14 @@ public abstract class AbstractServerHttpResponse implements ServerHttpResponse {
 					applyCookies();
 					this.state.set(State.COMMITTED);
 				}));
-
 		if (writeAction != null) {
 			this.commitActions.add(writeAction);
 		}
-
-		List<? extends Mono<Void>> actions = this.commitActions.stream()
-				.map(Supplier::get).collect(Collectors.toList());
-
-		return Flux.concat(actions).then();
+		Flux<Void> commit = Flux.empty();
+		for (Supplier<? extends Mono<Void>> action : this.commitActions) {
+			commit = commit.concatWith(action.get());
+		}
+		return commit.then();
 	}
 
 

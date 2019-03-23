@@ -510,12 +510,21 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 					// Generics potentially only match on the target class, not on the proxy...
 					RootBeanDefinition mbd = getMergedLocalBeanDefinition(beanName);
 					Class<?> targetType = mbd.getTargetType();
-					if (targetType != null && targetType != ClassUtils.getUserClass(beanInstance) &&
-							typeToMatch.isAssignableFrom(targetType)) {
+					if (targetType != null && targetType != ClassUtils.getUserClass(beanInstance)) {
 						// Check raw class match as well, making sure it's exposed on the proxy.
 						Class<?> classToMatch = typeToMatch.resolve();
-						return (classToMatch == null || classToMatch.isInstance(beanInstance));
+						if (classToMatch != null && !classToMatch.isInstance(beanInstance)) {
+							return false;
+						}
+						if (typeToMatch.isAssignableFrom(targetType)) {
+							return true;
+						}
 					}
+					ResolvableType resolvableType = mbd.targetType;
+					if (resolvableType == null) {
+						resolvableType = mbd.factoryMethodReturnType;
+					}
+					return (resolvableType != null && typeToMatch.isAssignableFrom(resolvableType));
 				}
 			}
 			return false;
@@ -1362,6 +1371,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 	@Nullable
 	protected Class<?> resolveBeanClass(final RootBeanDefinition mbd, String beanName, final Class<?>... typesToMatch)
 			throws CannotLoadBeanClassException {
+
 		try {
 			if (mbd.hasBeanClass()) {
 				return mbd.getBeanClass();
@@ -1391,13 +1401,16 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 			throws ClassNotFoundException {
 
 		ClassLoader beanClassLoader = getBeanClassLoader();
-		ClassLoader classLoaderToUse = beanClassLoader;
+		ClassLoader dynamicLoader = beanClassLoader;
+		boolean freshResolve = false;
+
 		if (!ObjectUtils.isEmpty(typesToMatch)) {
 			// When just doing type checks (i.e. not creating an actual instance yet),
 			// use the specified temporary class loader (e.g. in a weaving scenario).
 			ClassLoader tempClassLoader = getTempClassLoader();
 			if (tempClassLoader != null) {
-				classLoaderToUse = tempClassLoader;
+				dynamicLoader = tempClassLoader;
+				freshResolve = true;
 				if (tempClassLoader instanceof DecoratingClassLoader) {
 					DecoratingClassLoader dcl = (DecoratingClassLoader) tempClassLoader;
 					for (Class<?> typeToMatch : typesToMatch) {
@@ -1406,6 +1419,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				}
 			}
 		}
+
 		String className = mbd.getBeanClassName();
 		if (className != null) {
 			Object evaluated = evaluateBeanDefinitionString(className, mbd);
@@ -1415,18 +1429,31 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 					return (Class<?>) evaluated;
 				}
 				else if (evaluated instanceof String) {
-					return ClassUtils.forName((String) evaluated, classLoaderToUse);
+					className = (String) evaluated;
+					freshResolve = true;
 				}
 				else {
 					throw new IllegalStateException("Invalid class name expression result: " + evaluated);
 				}
 			}
-			// When resolving against a temporary class loader, exit early in order
-			// to avoid storing the resolved Class in the bean definition.
-			if (classLoaderToUse != beanClassLoader) {
-				return ClassUtils.forName(className, classLoaderToUse);
+			if (freshResolve) {
+				// When resolving against a temporary class loader, exit early in order
+				// to avoid storing the resolved Class in the bean definition.
+				if (dynamicLoader != null) {
+					try {
+						return dynamicLoader.loadClass(className);
+					}
+					catch (ClassNotFoundException ex) {
+						if (logger.isTraceEnabled()) {
+							logger.trace("Could not load class [" + className + "] from " + dynamicLoader + ": " + ex);
+						}
+					}
+				}
+				return ClassUtils.forName(className, dynamicLoader);
 			}
 		}
+
+		// Resolve regularly, caching the result in the BeanDefinition...
 		return mbd.resolveBeanClass(beanClassLoader);
 	}
 

@@ -1,5 +1,5 @@
 /*
- * Copyright 2002-2018 the original author or authors.
+ * Copyright 2002-2019 the original author or authors.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -27,12 +27,9 @@ import java.util.Collections;
 
 import org.junit.Test;
 
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.instanceOf;
-import static org.hamcrest.Matchers.not;
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertThat;
-import static org.springframework.web.util.UriComponentsBuilder.fromUriString;
+import static org.hamcrest.Matchers.*;
+import static org.junit.Assert.*;
+import static org.springframework.web.util.UriComponentsBuilder.*;
 
 /**
  * Unit tests for {@link UriComponents}.
@@ -125,6 +122,21 @@ public class UriComponentsTests {
 		UriComponents uriComponents = UriComponentsBuilder.fromUriString(template).build();
 		uriComponents = uriComponents.expand(Collections.singletonMap("name", "test"));
 		assertEquals("/myurl/test/show", uriComponents.getPath());
+	}
+
+	@Test // SPR-17630
+	public void uirTemplateExpandWithMismatchedCurlyBraces() {
+		assertEquals("/myurl/?q=%7B%7B%7B%7B",
+				UriComponentsBuilder.fromUriString("/myurl/?q={{{{").encode().build().toUriString());
+	}
+
+	@Test // gh-22447
+	public void expandWithFragmentOrder() {
+		UriComponents uriComponents = UriComponentsBuilder
+				.fromUriString("http://{host}/{path}#{fragment}").build()
+				.expand("example.com", "foo", "bar");
+
+		assertEquals("http://example.com/foo#bar", uriComponents.toUriString());
 	}
 
 	@Test // SPR-12123

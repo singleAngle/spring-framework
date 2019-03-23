@@ -308,7 +308,7 @@ public class ForwardedHeaderFilter extends OncePerRequestFilter {
 		 * Constructor with required information.
 		 * @param delegateRequest supplier for the current
 		 * {@link HttpServletRequestWrapper#getRequest() delegate request} which
-		 * may change during a forward (e.g. Tocat.
+		 * may change during a forward (e.g. Tomcat.
 		 * @param pathHelper the path helper instance
 		 * @param baseUrl the host, scheme, and port based on forwarded headers
 		 */
@@ -364,16 +364,16 @@ public class ForwardedHeaderFilter extends OncePerRequestFilter {
 			if (this.requestUri == null) {
 				return this.delegate.get().getRequestURI();
 			}
-			recalculatePathsIfNecesary();
+			recalculatePathsIfNecessary();
 			return this.requestUri;
 		}
 
 		public StringBuffer getRequestUrl() {
-			recalculatePathsIfNecesary();
+			recalculatePathsIfNecessary();
 			return new StringBuffer(this.requestUrl);
 		}
 
-		private void recalculatePathsIfNecesary() {
+		private void recalculatePathsIfNecessary() {
 			if (!this.actualRequestUri.equals(this.delegate.get().getRequestURI())) {
 				// Underlying path change (e.g. Servlet FORWARD).
 				this.actualRequestUri = this.delegate.get().getRequestURI();
